@@ -16,9 +16,10 @@ jobs:
       uses: actions/setup-go@v4
       with:
         go-version: '1.21'
+        cache: true
 
-    - name: Install dependencies
-      run: go mod download
+    - name: Verify dependencies
+      run: go mod verify
 
     - name: Build
       run: go build -v ./cmd/server/main.go
@@ -41,3 +42,5 @@ jobs:
         context: .
         push: false
         tags: k8s-monitor:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
