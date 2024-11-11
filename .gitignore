@@ -1,0 +1,27 @@
+# Binary
+/k8s-monitor
+k8s-monitor
+
+# IDE files
+.idea/
+.vscode/
+
+# Mac files
+.DS_Store
+
+# Data files
+clusters.json
+
+# Temporary files
+tmp/
+*.tmp
+
+# Go specific
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
