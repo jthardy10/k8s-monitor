@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Kubernetes Cluster Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 20px; 
+            background: #f5f5f5;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .cluster-selector {
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        .dashboard { 
+            display: grid; 
+            grid-template-columns: repeat(2, 1fr); 
+            gap: 20px; 
+        }
+        .card { 
+            background: #fff;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            min-height: 300px;
+            display: flex;
+            flex-direction: column;
+        }
+        .chart-container {
+            flex-grow: 1;
+            position: relative;
+            height: 200px;
+            width: 100%;
+        }
+        .metrics { margin-bottom: 20px; }
+        .resource-bar {
+            width: 100%;
+            height: 20px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+        .resource-progress {
+            height: 100%;
+            background: #2196f3;
+            transition: width 0.3s ease;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        .status-healthy { background: #4caf50; }
+        .status-warning { background: #ff9800; }
+        .status-error { background: #f44336; }
+        .refresh-button {
+            padding: 8px 16px;
+            background: #2196f3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .refresh-button:hover {
+            background: #1976d2;
+        }
+        .last-updated {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Kubernetes Cluster Monitor</h1>
+        <div>
+            <select id="clusters" class="cluster-selector" onchange="loadClusterMetrics()">
+                <option value="">Select a cluster</option>
+            </select>
+            <button class="refresh-button" onclick="loadClusterMetrics()">Refresh</button>
+        </div>
+    </div>
+    <div class="metrics">
+        <div class="dashboard">
+            <div class="card">
+                <h3>Node Status</h3>
+                <div class="status-row">
+                    <span class="status-indicator" id="nodeStatusIndicator"></span>
+                    <span id="nodeStatusText">Healthy</span>
+                </div>
+                <div>Total Nodes: <span id="nodeTotal">0</span></div>
+                <div>Ready: <span id="nodeReady">0</span></div>
+                <div>Not Ready: <span id="nodeNotReady">0</span></div>
+            </div>
+            <div class="card">
+                <h3>Pod Status</h3>
+                <div>Total Pods: <span id="podTotal">0</span></div>
+                <div class="chart-container">
+                    <canvas id="podStatusChart"></canvas>
+                </div>
+            </div>
+            <div class="card">
+                <h3>Cluster Resources</h3>
+                <div>
+                    <strong>CPU Usage</strong>
+                    <div class="resource-bar">
+                        <div class="resource-progress" id="cpuBar"></div>
+                    </div>
+                    <div><span id="cpuUsage">0</span> / <span id="cpuTotal">0</span></div>
+                </div>
+                <div style="margin-top: 20px;">
+                    <strong>Memory Usage</strong>
+                    <div class="resource-bar">
+                        <div class="resource-progress" id="memoryBar"></div>
+                    </div>
+                    <div><span id="memoryUsage">0</span> / <span id="memoryTotal">0</span></div>
+                </div>
+            </div>
+            <div class="card">
+                <h3>Pods by Namespace</h3>
+                <div class="chart-container">
+                    <canvas id="namespaceChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="last-updated">Last updated: <span id="lastUpdated">Never</span></div>
+    </div>
+    <script>
+        const API_KEY = 'dev-api-key-123';
+        let podStatusChart, namespaceChart;
+        let currentCluster = '';
+
+        const chartOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+        };
+
+        async function fetchClusters() {
+            const response = await fetch('/clusters', {
+                headers: { 'X-API-Key': API_KEY }
+            });
+            const data = await response.json();
+            const select = document.getElementById('clusters');
+            select.innerHTML = '<option value="">Select a cluster</option>';
+            data.clusters.forEach(cluster => {
+                const option = document.createElement('option');
+                option.value = cluster;
+                option.textContent = cluster;
+                select.appendChild(option);
+            });
+            
+            if (data.clusters.length === 1) {
+                select.value = data.clusters[0];
+                loadClusterMetrics();
+            }
+        }
+
+        async function loadClusterMetrics() {
+            const clusterName = document.getElementById('clusters').value;
+            if (!clusterName) return;
+            currentCluster = clusterName;
+
+            const response = await fetch(`/clusters/${clusterName}`, {
+                headers: { 'X-API-Key': API_KEY }
+            });
+            const data = await response.json();
+
+            const nodeStatus = data.metrics.nodes;
+            document.getElementById('nodeTotal').textContent = nodeStatus.total;
+            document.getElementById('nodeReady').textContent = nodeStatus.ready;
+            document.getElementById('nodeNotReady').textContent = nodeStatus.notReady;
+            
+            updateNodeStatusIndicator(nodeStatus);
+            document.getElementById('podTotal').textContent = data.metrics.pods.total;
+            updatePodStatusChart(data.metrics.pods.status);
+            updateResourceBars(data.metrics.clusterResources);
+            updateNamespaceChart(data.metrics.pods.byNamespace);
+            document.getElementById('lastUpdated').textContent = new Date().toLocaleString();
+        }
+
+        function updateNodeStatusIndicator(nodeStatus) {
+            const indicator = document.getElementById('nodeStatusIndicator');
+            const statusText = document.getElementById('nodeStatusText');
+            
+            if (nodeStatus.notReady > 0) {
+                indicator.className = 'status-indicator status-error';
+                statusText.textContent = 'Unhealthy';
+            } else if (nodeStatus.ready === nodeStatus.total) {
+                indicator.className = 'status-indicator status-healthy';
+                statusText.textContent = 'Healthy';
+            } else {
+                indicator.className = 'status-indicator status-warning';
+                statusText.textContent = 'Warning';
+            }
+        }
+
+        function updateResourceBars(resources) {
+            const cpuUsage = parseInt(resources.usedCPU);
+            const cpuTotal = parseInt(resources.totalCPU);
+            const memoryUsage = parseInt(resources.usedMemory);
+            const memoryTotal = parseInt(resources.totalMemory);
+
+            document.getElementById('cpuUsage').textContent = resources.usedCPU;
+            document.getElementById('cpuTotal').textContent = resources.totalCPU;
+            document.getElementById('memoryUsage').textContent = resources.usedMemory;
+            document.getElementById('memoryTotal').textContent = resources.totalMemory;
+
+            const cpuBar = document.getElementById('cpuBar');
+            const memoryBar = document.getElementById('memoryBar');
+
+            const cpuPercentage = (cpuUsage / cpuTotal) * 100;
+            const memoryPercentage = (memoryUsage / memoryTotal) * 100;
+
+            cpuBar.style.width = `${cpuPercentage}%`;
+            memoryBar.style.width = `${memoryPercentage}%`;
+        }
+
+        function updatePodStatusChart(podStatus) {
+            const ctx = document.getElementById('podStatusChart');
+            if (podStatusChart) {
+                podStatusChart.destroy();
+            }
+            podStatusChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Running', 'Pending', 'Failed', 'Succeeded'],
+                    datasets: [{
+                        data: [
+                            podStatus.running,
+                            podStatus.pending,
+                            podStatus.failed,
+                            podStatus.succeeded
+                        ],
+                        backgroundColor: [
+                            '#4caf50',
+                            '#ff9800',
+                            '#f44336',
+                            '#2196f3'
+                        ]
+                    }]
+                },
+                options: chartOptions
+            });
+        }
+
+        function updateNamespaceChart(namespaceData) {
+            const ctx = document.getElementById('namespaceChart');
+            if (namespaceChart) {
+                namespaceChart.destroy();
+            }
+            namespaceChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(namespaceData),
+                    datasets: [{
+                        label: 'Pods per Namespace',
+                        data: Object.values(namespaceData),
+                        backgroundColor: '#2196f3'
+                    }]
+                },
+                options: {
+                    ...chartOptions,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        fetchClusters();
+        setInterval(() => {
+            if (currentCluster) {
+                loadClusterMetrics();
+            }
+        }, 30000);
+    </script>
+</body>
+</html>
